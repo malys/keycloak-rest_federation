@@ -34,7 +34,7 @@ public class UserRepository  implements UserMapper {
 
         final String host= Optional.ofNullable(System.getProperty("http." + RestUserFederationProviderFactory.PROXY_HOST))
                 .filter(s -> s != null && !s.isEmpty()).orElse(System.getProperty("https." + RestUserFederationProviderFactory.PROXY_HOST));
-        final int port=portTemp!=null ? Integer.valueOf(portTemp):8080;
+        final int port=portTemp!=null ? Integer.parseInt(portTemp):8080;
         final String scheme=System.getProperty("http." + RestUserFederationProviderFactory.PROXY_HOST) !=null ? "http":"https";
 
         ResteasyClientBuilder builder=new ResteasyClientBuilder();

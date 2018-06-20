@@ -36,30 +36,35 @@ import org.keycloak.storage.UserStorageProviderModel;
 import org.keycloak.storage.user.ImportSynchronization;
 import org.keycloak.storage.user.SynchronizationResult;
 
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Remote user federation provider factory.
- *
- * @see http://www.keycloak.org/docs/3.4/server_development/
+ * <p>
+ * http://www.keycloak.org/docs/3.4/server_development/
  */
 @JBossLog
-public class RestUserFederationProviderFactory implements ImportSynchronization, UserStorageProviderFactory<RestUserFederationProvider> {
+public class RestUserFederationProviderFactory implements UserStorageProviderFactory<RestUserFederationProvider>, ImportSynchronization {
 
 
     public static final String PROVIDER_NAME = "Rest User Federation";
 
     public static final String PROPERTY_URL = "url";
-    public static final String ATTR_SYNC = "attr-sync";
-    public static final String ROLE_SYNC = "role-sync";
-    public static final String ROLE_PREFIX = "role-prefix";
-    public static final String UPPERCASE_ROLE = "uppercase-role";
+    public static final String ATTR_SYNC = "attr_sync";
+    public static final String ROLE_SYNC = "role_sync";
+    public static final String PREFIX = "prefix";
+    public static final String UPPERCASE = "uppercase";
     public static final String PROXY_ENABLED = "proxy_enabled";
-    public static final String PROXY_HOST= "proxyHost";
-    public static final String PROXY_PORT= "proxyPort";
-
+    public static final String PROXY_HOST = "proxyHost";
+    public static final String PROXY_PORT = "proxyPort";
+    public static final String UNCHECK_FEDERATION = "uncheck_federation";
+    public static final String RESET_ACTIONS = "reset_action";
+    public static final String NOT_CREATE_USERS = "not_create_users";
 
 
     protected static final List<ProviderConfigProperty> configMetadata;
@@ -72,28 +77,46 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
                 .defaultValue("https://")
                 .helpText("Remote repository url")
                 .add()
+                .property().name(PREFIX)
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .label("Define prefix for roles and attributes")
+                .helpText("size >=3.")
+                .add()
+                .property().name(UPPERCASE)
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("true")
+                .label("Uppercase role/attribute name")
+                .helpText("Convert remote roles/attributes to uppercase")
+                .add()
                 .property().name(ROLE_SYNC)
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
                 .defaultValue("true")
                 .label("Enable roles synchronization")
                 .helpText("Apply and create remote roles")
                 .add()
-                .property().name(ROLE_PREFIX)
-                .type(ProviderConfigProperty.STRING_TYPE)
-                .label("Include prefix for roles")
-                .helpText("size >=3.Prefix that needs to be removed from roles received from remote API")
-                .add()
-                .property().name(UPPERCASE_ROLE)
-                .type(ProviderConfigProperty.BOOLEAN_TYPE)
-                .defaultValue("true")
-                .label("Uppercase role name")
-                .helpText("Convert remote roles to uppercase")
-                .add()
                 .property().name(ATTR_SYNC)
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
                 .defaultValue("true")
                 .label("Enable attributes synchronization")
                 .helpText("Apply remote attributes")
+                .add()
+                .property().name(UNCHECK_FEDERATION)
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("false")
+                .label("Uncheck federation origin")
+                .helpText("Change attributes or roles without controlling federation origin.")
+                .add()
+                .property().name(NOT_CREATE_USERS)
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("false")
+                .label("Not create new users")
+                .helpText("Only update existed users")
+                .add()
+                .property().name(RESET_ACTIONS)
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .label("Actions to apply after user creation")
+                .helpText("ex: UPDATE_PASSWORD,VERIFY_EMAIL")
+                .defaultValue("")
                 .add()
                 .property().name(PROXY_ENABLED)
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
@@ -111,25 +134,45 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
     @Override
     public void validateConfiguration(KeycloakSession session, RealmModel realm, ComponentModel config) throws ComponentValidationException {
         final String url = config.getConfig().getFirst(PROPERTY_URL);
-        final String rolePrefix = config.getConfig().getFirst(ROLE_PREFIX);
+        final String prefix = config.getConfig().getFirst(PREFIX);
         final Boolean roleIsSync = Boolean.valueOf(config.getConfig().getFirst(ROLE_SYNC));
+        final Boolean attributeIsSync = Boolean.valueOf(config.getConfig().getFirst(ATTR_SYNC));
         final Boolean proxyOn = Boolean.valueOf(config.getConfig().getFirst(PROXY_ENABLED));
+        final List<String> resetActions = formatResetActions(config.getConfig().getFirst(RESET_ACTIONS));
+
         boolean valid = true;
-        String comment="";
+        String comment = "";
+
+        final List<String> RESET_ACTIONS_LIST = Stream.of(UserModel.RequiredAction.values())
+                .map(Enum::name)
+                .collect(Collectors.toList());
+
+
+        List<String> notFound = resetActions.stream().filter(a -> !"".equals(a) && !RESET_ACTIONS_LIST.contains(a)).collect(Collectors.toList());
+        if (notFound.size() > 0) {
+            valid = false;
+            comment = "Please check actions: " + String.join("", notFound);
+        }
+
 
         if (url != null && url.length() < 10) {
             valid = false;
-            comment="Please check the url.";
+            comment = "Please check the url.";
         }
 
-        if (roleIsSync && rolePrefix != null && rolePrefix.length() < 3) {
+        if ((roleIsSync || attributeIsSync) && prefix != null && prefix.length() < 3) {
             valid = false;
-            comment="Please check role prefix size.";
+            comment = "Please check prefix size.";
         }
 
-        if (proxyOn && System.getProperty("http." +PROXY_HOST) == null && System.getProperty("https." + PROXY_HOST) == null) {
+        if ((roleIsSync || attributeIsSync) && prefix == null) {
             valid = false;
-            comment="Please check 'http(s).proxyHost' property.";
+            comment = "Please define prefix.";
+        }
+
+        if (proxyOn && System.getProperty("http." + PROXY_HOST) == null && System.getProperty("https." + PROXY_HOST) == null) {
+            valid = false;
+            comment = "Please check 'http(s).proxyHost' property.";
         }
 
         log.debugf("validating module config %s", valid);
@@ -153,12 +196,20 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
     public RestUserFederationProvider create(KeycloakSession session, ComponentModel model) {
         final String url = model.getConfig().getFirst(PROPERTY_URL);
         final Boolean attributesIsSync = Boolean.valueOf(model.getConfig().getFirst(ATTR_SYNC));
-        final String rolePrefix = model.getConfig().getFirst(ROLE_PREFIX);
+        final String rolePrefix = model.getConfig().getFirst(PREFIX);
         final Boolean roleIsSync = Boolean.valueOf(model.getConfig().getFirst(ROLE_SYNC));
-        final Boolean upperCase = Boolean.valueOf(model.getConfig().getFirst(UPPERCASE_ROLE));
+        final Boolean upperCase = Boolean.valueOf(model.getConfig().getFirst(UPPERCASE));
         final Boolean proxyOn = Boolean.valueOf(model.getConfig().getFirst(PROXY_ENABLED));
-        UserRepository repository = new UserRepository(url,proxyOn);
-        return new RestUserFederationProvider(session, model, repository, roleIsSync, rolePrefix, upperCase, attributesIsSync, proxyOn);
+        final Boolean uncheckFederation = Boolean.valueOf(model.getConfig().getFirst(UNCHECK_FEDERATION));
+        final Boolean notCreateUsers = Boolean.valueOf(model.getConfig().getFirst(NOT_CREATE_USERS));
+        final List<String> resetActions = formatResetActions(model.getConfig().getFirst(RESET_ACTIONS));
+
+        UserRepository repository = new UserRepository(url, proxyOn);
+        return new RestUserFederationProvider(session, model, repository, roleIsSync,
+                rolePrefix, upperCase, attributesIsSync,
+                proxyOn, uncheckFederation, resetActions,
+                notCreateUsers
+        );
     }
 
     @Override
@@ -171,10 +222,19 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
         return syncImpl(Optional.of(date), sessionFactory, realmId, model);
     }
 
+    private List<String> formatResetActions(String resetActions) {
+        final String SEP = ",";
+        String value = resetActions == null ? "" : resetActions;
+        return Arrays.asList(value.split(SEP)).stream().map(String::trim).collect(Collectors.toList());
+    }
+
+
     protected SynchronizationResult syncImpl(Optional<Date> date, KeycloakSessionFactory sessionFactory, final String realmId, final ComponentModel fedModel) {
         final String url = fedModel.getConfig().getFirst(PROPERTY_URL);
         final Boolean proxyOn = Boolean.valueOf(fedModel.getConfig().getFirst(PROXY_ENABLED));
-        UserRepository repository = new UserRepository(url,proxyOn);
+        final Boolean uncheck = Boolean.valueOf(fedModel.getConfig().getFirst(UNCHECK_FEDERATION));
+        final Boolean notCreateUsers = Boolean.valueOf(fedModel.getConfig().getFirst(NOT_CREATE_USERS));
+        UserRepository repository = new UserRepository(url, proxyOn);
 
         List<UserDto> users;
 
@@ -194,7 +254,6 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
         final BooleanHolder exists = new BooleanHolder();
 
 
-
         for (final UserDto restUser : users) {
 
             try {
@@ -202,7 +261,7 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
                 KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
                     @Override
                     public void run(KeycloakSession session) {
-                        RestUserFederationProvider ldapFedProvider =(RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
+                        RestUserFederationProvider restFedProvider = (RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
                         RealmModel currentRealm = session.realms().getRealm(realmId);
 
                         String username = restUser.getUserName();
@@ -210,16 +269,21 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
                         UserModel currentUser = session.userLocalStorage().getUserByUsername(username, currentRealm);
 
                         if (currentUser == null) {
-                            // Add new user to Keycloak
-                            exists.value = false;
-                            ldapFedProvider.importUserFromRest(session, currentRealm, restUser);
-                            syncResult.increaseAdded();
 
+                            if(!notCreateUsers){
+                                // Add new user to Keycloak
+                                exists.value = false;
+                                restFedProvider.importUserFromRest(session, currentRealm, restUser, uncheck);
+                                syncResult.increaseAdded();
+                            }else{
+                                log.debug("notCreateUsers mode: Skip this users " + username);
+                            }
                         } else {
-                            if ((fedModel.getId().equals(currentUser.getFederationLink())) && (restUser.getUserName().equals(currentUser.getUsername()))) {
+                            //Uncheck mode ignore federation origin
+                            if ((fedModel.getId().equals(currentUser.getFederationLink()) || uncheck) && restUser.getUserName().equals(currentUser.getUsername())) {
 
                                 // Update keycloak user
-                                ldapFedProvider.updateUserFromRest(currentRealm, restUser, currentUser);
+                                restFedProvider.updateUserFromRest(currentRealm, restUser, currentUser, uncheck);
 
                                 session.userCache().evict(currentRealm, currentUser);
                                 log.debugf("Updated user from REST: %s", currentUser.getUsername());
@@ -242,7 +306,7 @@ public class RestUserFederationProviderFactory implements ImportSynchronization,
 
                         @Override
                         public void run(KeycloakSession session) {
-                            RestUserFederationProvider ldapFedProvider =(RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
+                            //RestUserFederationProvider restFedProvider = (RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
                             RealmModel currentRealm = session.realms().getRealm(realmId);
 
                             if (restUser.getUserName() != null) {

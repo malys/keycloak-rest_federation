@@ -18,17 +18,27 @@ package com.lyra.idm.keycloak.federation.provider;
 import com.lyra.idm.keycloak.federation.api.user.UserRepository;
 import com.lyra.idm.keycloak.federation.model.UserDto;
 import lombok.extern.jbosslog.JBossLog;
+import org.keycloak.authentication.actiontoken.execactions.ExecuteActionsActionToken;
+import org.keycloak.common.util.Time;
 import org.keycloak.component.ComponentModel;
+import org.keycloak.email.EmailException;
+import org.keycloak.email.EmailTemplateProvider;
+import org.keycloak.models.Constants;
 import org.keycloak.models.GroupModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.services.ServicesLogger;
+import org.keycloak.services.resources.LoginActionsService;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.UserStorageProviderModel;
 
+import javax.ws.rs.core.UriBuilder;
+import javax.ws.rs.core.UriInfo;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -40,34 +50,43 @@ public class RestUserFederationProvider implements UserStorageProvider {
     protected KeycloakSession session;
     protected UserStorageProviderModel model;
     protected UserRepository repository;
-    protected Boolean upperCaseRoleName;
+    protected Boolean upperCaseName;
     protected Boolean proxyOn;
-    protected String rolePrefix;
+    protected String prefix;
     protected Boolean roleIsSync;
     protected Boolean attributesIsSync;
+    protected Boolean uncheckFederation;
+    protected Boolean notCreateUsers;
+    protected List<String> resetActions;
 
 
-    public RestUserFederationProvider(KeycloakSession session, ComponentModel model, UserRepository repository, Boolean roleIsSync, String rolePrefix, Boolean upperCaseRoleName, Boolean attributesIsSync, Boolean proxyOn) {
+    public RestUserFederationProvider(KeycloakSession session, ComponentModel model, UserRepository repository,
+                                      Boolean roleIsSync, String prefix, Boolean upperCaseName,
+                                      Boolean attributesIsSync, Boolean proxyOn, Boolean uncheckFederation,
+                                      List<String> resetActions,Boolean notCreateUsers) {
         this.session = session;
         this.model = new UserStorageProviderModel(model);
         this.repository = repository;
-        this.rolePrefix = rolePrefix;
+        this.prefix = prefix;
         this.roleIsSync = roleIsSync;
         this.proxyOn = proxyOn;
-        this.upperCaseRoleName = upperCaseRoleName;
+        this.upperCaseName = upperCaseName;
         this.attributesIsSync = attributesIsSync;
+        this.uncheckFederation = uncheckFederation;
+        this.resetActions = resetActions;
+        this.notCreateUsers=notCreateUsers;
     }
 
 
-    private String convertRemoteRoleName(String remoteRoleName) {
-        String roleName = remoteRoleName;
-        if (this.rolePrefix != null && this.rolePrefix.length() > 0) {
-            roleName = this.rolePrefix + "_"+ remoteRoleName.replaceFirst("^" + this.rolePrefix + "_", "");
+    private String convertRemoteName(String remoteName) {
+        String name = remoteName;
+        if (this.prefix != null && this.prefix.length() > 0) {
+            name = this.prefix + "_" + remoteName.replaceFirst("^" + this.prefix + "_", "");
         }
-        if (this.upperCaseRoleName) {
-            roleName = roleName.toUpperCase();
+        if (this.upperCaseName) {
+            name = name.toUpperCase();
         }
-        return roleName;
+        return name;
     }
 
 
@@ -91,18 +110,43 @@ public class RestUserFederationProvider implements UserStorageProvider {
         //n/a
     }
 
-    protected UserModel importUserFromRest(KeycloakSession session, RealmModel realm, UserDto restUser) {
-        String ldapUsername = restUser.getUserName();
+    protected UserModel importUserFromRest(KeycloakSession session, RealmModel realm, UserDto restUser, final Boolean uncheck) {
+        String restUsername = restUser.getUserName();
 
-        UserModel imported = session.userLocalStorage().addUser(realm, ldapUsername);
+        UserModel local = session.userLocalStorage().addUser(realm, restUsername);
         log.debugf("Imported new user from Rest to Keycloak DB. Username: [%s], Email: [%s] for Realm: [%s] ",
-                imported.getUsername(), imported.getEmail(), realm.getName());
-
-        return proxy(realm, imported, restUser,true);
+                local.getUsername(), local.getEmail(), realm.getName());
+        UserModel result = proxy(realm, local, restUser, true, uncheck);
+        if (resetActions != null && resetActions.size() > 0) resetActionExecute(realm, result);
+        return result;
     }
 
-    protected UserModel updateUserFromRest(RealmModel realm, UserDto restUser,UserModel imported) {
-         return proxy(realm, imported, restUser,false);
+    protected UserModel updateUserFromRest(RealmModel realm, UserDto restUser, UserModel imported, final Boolean uncheck) {
+        return proxy(realm, imported, restUser, false, uncheck);
+    }
+
+    protected void resetActionExecute(RealmModel realm, UserModel local) {
+        if (local.getEmail() != null) {
+            try {
+                UriInfo uriInfo = session.getContext().getUri();
+                String clientId = Constants.ACCOUNT_MANAGEMENT_CLIENT_ID;
+                int lifespan = realm.getActionTokenGeneratedByAdminLifespan();
+                int expiration = Time.currentTime() + lifespan;
+                ExecuteActionsActionToken token = new ExecuteActionsActionToken(local.getId(), expiration, resetActions, null, clientId);
+                UriBuilder builder = LoginActionsService.actionTokenProcessor(uriInfo);
+                builder.queryParam("key", token.serialize(session, realm, uriInfo));
+
+                String link = builder.build(realm.getName()).toString();
+                session.getContext().setRealm(realm);
+                session.getProvider(EmailTemplateProvider.class)
+                        .setAttribute(Constants.TEMPLATE_ATTR_REQUIRED_ACTIONS, token.getRequiredActions())
+                        .setRealm(realm)
+                        .setUser(local)
+                        .sendExecuteActions(link, TimeUnit.SECONDS.toMinutes(lifespan));
+            } catch (EmailException e) {
+                ServicesLogger.LOGGER.failedToSendActionsEmail(e);
+            }
+        }
     }
 
 
@@ -114,8 +158,8 @@ public class RestUserFederationProvider implements UserStorageProvider {
      * @param restUser
      * @return UserModel
      */
-    protected UserModel proxy(RealmModel realm, UserModel local, final UserDto restUser,final Boolean over) {
-        UserModel result=null;
+    protected UserModel proxy(RealmModel realm, UserModel local, final UserDto restUser, final Boolean over, final Boolean uncheck) {
+        UserModel result = null;
         if (restUser != null) {
 
             if (!restUser.getEmail().equals(local.getEmail()) && !over) {
@@ -123,9 +167,10 @@ public class RestUserFederationProvider implements UserStorageProvider {
             }
 
             //create restUser locally and set up relationship to this SPI
-            if(over) local.setFederationLink(model.getId());
+            if (over) local.setFederationLink(model.getId());
 
             //merge data from remote to local
+
             local.setFirstName(restUser.getFirstName());
             local.setLastName(restUser.getLastName());
             local.setUsername(restUser.getUserName());
@@ -133,12 +178,16 @@ public class RestUserFederationProvider implements UserStorageProvider {
             local.setEmailVerified(restUser.isEnabled());
             local.setEnabled(restUser.isEnabled());
 
+
             //pass roles along
             if (this.roleIsSync) {
                 if (restUser.getRoles() != null) {
+                    //clean roles in local
+                    local.getRealmRoleMappings().removeIf(item -> item.getName().startsWith(this.prefix));
+
                     for (String role : restUser.getRoles()) {
 
-                        String roleNorm = convertRemoteRoleName(role);
+                        String roleNorm = convertRemoteName(role);
                         RoleModel roleModel = realm.getRole(roleNorm);
                         if (roleModel == null) {
                             //Create role
@@ -156,15 +205,18 @@ public class RestUserFederationProvider implements UserStorageProvider {
             //pass attributes along
             if (this.attributesIsSync) {
                 if (restUser.getAttributes() != null) {
-                    Map<String,List<String>> map=restUser.getAttributes();
-                    for (String attKey : map.keySet()) {
-                        local.setAttribute(attKey,map.get(attKey));
-                        log.debugf("Remote attribute %s affected to %s", attKey, restUser.getUserName());
+                    //clean attributes in local
+                    local.getAttributes().keySet().removeIf(item -> item.startsWith(this.prefix));
+
+                    Map<String, List<String>> map = restUser.getAttributes();
+                    for (Map.Entry<String, List<String>> entry : map.entrySet()) {
+                        local.setAttribute(convertRemoteName(entry.getKey()), entry.getValue());
+                        log.debugf("Remote attribute %s affected to %s", entry.getKey(), restUser.getUserName());
                     }
                 }
             }
 
-            result=local;
+            result = local;
         }
         return result;
     }
