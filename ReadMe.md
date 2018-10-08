@@ -80,7 +80,8 @@ Change RH-SSO version in *pom.xml* and maven will update inherited dependencies.
 ![](./federation.png)
 
 | Name                                      | Description                                               |
-|---                                        |---                                                        |
+|---                                        |---                                                        |   
+| By-pass                                   |Disabling federation internal process                      |
 | Remote User Information Url               |Rest API endpoint providing users                          |
 | Define prefix for roles and attributes    |Add prefix to synchronized attributes or roles             |
 | Uppercase role/attribute name             |Force upper case for synchronized attributes or roles      |

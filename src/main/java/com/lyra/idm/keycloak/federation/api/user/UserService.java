@@ -18,12 +18,16 @@ import java.util.List;
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public interface UserService {
+    String FORMAT = "yyyy-MM-dd'T'HH:mm'Z'";
 
     @GET
-    @Path("/users/")
+    @Path("/full")
     List<UserDto> getUsers();
 
+    /**
+     * @param date see FORMAT in UTC
+     */
     @GET
-    @Path("/users/updated/")
-    List<UserDto> getUpdatedUsers( @PathParam("from") Date date);
+    @Path("/updated/{from}")
+    List<UserDto> getUpdatedUsers( @PathParam("from")  String date);
 }

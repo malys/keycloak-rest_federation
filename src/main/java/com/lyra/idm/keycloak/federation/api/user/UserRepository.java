@@ -64,7 +64,7 @@ public class UserRepository  implements UserMapper {
         return remoteUsers;
     }
 
-    public List<UserDto> getUpdatedUsers(Date date){
+    public List<UserDto> getUpdatedUsers(String date){
         List<UserDto> remoteUsers = null;
         try {
             remoteUsers =remoteService.getUpdatedUsers(date);

@@ -16,8 +16,10 @@
 package com.lyra.idm.keycloak.federation.provider;
 
 import com.lyra.idm.keycloak.federation.api.user.UserRepository;
+import com.lyra.idm.keycloak.federation.api.user.UserService;
 import com.lyra.idm.keycloak.federation.model.UserDto;
 import lombok.extern.jbosslog.JBossLog;
+import org.apache.commons.lang.StringUtils;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.component.ComponentValidationException;
 import org.keycloak.models.KeycloakSession;
@@ -36,10 +38,11 @@ import org.keycloak.storage.UserStorageProviderModel;
 import org.keycloak.storage.user.ImportSynchronization;
 import org.keycloak.storage.user.SynchronizationResult;
 
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.Optional;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -65,12 +68,32 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
     public static final String UNCHECK_FEDERATION = "uncheck_federation";
     public static final String RESET_ACTIONS = "reset_action";
     public static final String NOT_CREATE_USERS = "not_create_users";
+    public static final String BY_PASS = "by_pass";
 
+
+
+    private static final TimeZone TZ = TimeZone.getTimeZone("UTC");
+    private static final DateFormat DF = new SimpleDateFormat(UserService.FORMAT); // Quoted "Z" to indicate UTC, no timezone offset
 
     protected static final List<ProviderConfigProperty> configMetadata;
 
+    /***
+     * Format date to ISO
+     * @param date
+     * @return
+     */
+    public static String formatDate(Date date ){
+        DF.setTimeZone(TZ);
+        return DF.format(date);
+    }
+
     static {
         configMetadata = ProviderConfigurationBuilder.create()
+                .property().name(BY_PASS)
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .label("By-pass")
+                .helpText("Disabling federation based on context. ex: ${COLLECT_DISABLE_FEDERATION} or 'true'")
+                .add()
                 .property().name(PROPERTY_URL)
                 .type(ProviderConfigProperty.STRING_TYPE)
                 .label("Remote User Information Url")
@@ -133,11 +156,11 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
 
     @Override
     public void validateConfiguration(KeycloakSession session, RealmModel realm, ComponentModel config) throws ComponentValidationException {
-        final String url = config.getConfig().getFirst(PROPERTY_URL);
-        final String prefix = config.getConfig().getFirst(PREFIX);
-        final Boolean roleIsSync = Boolean.valueOf(config.getConfig().getFirst(ROLE_SYNC));
-        final Boolean attributeIsSync = Boolean.valueOf(config.getConfig().getFirst(ATTR_SYNC));
-        final Boolean proxyOn = Boolean.valueOf(config.getConfig().getFirst(PROXY_ENABLED));
+        final String url = EnvSubstitutor.envSubstitutor.replace(config.getConfig().getFirst(PROPERTY_URL));
+        final String prefix = EnvSubstitutor.envSubstitutor.replace(config.getConfig().getFirst(PREFIX));
+        final Boolean roleIsSync = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(config.getConfig().getFirst(ROLE_SYNC)));
+        final Boolean attributeIsSync = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(config.getConfig().getFirst(ATTR_SYNC)));
+        final Boolean proxyOn = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(config.getConfig().getFirst(PROXY_ENABLED)));
         final List<String> resetActions = formatResetActions(config.getConfig().getFirst(RESET_ACTIONS));
 
         boolean valid = true;
@@ -147,6 +170,19 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
                 .map(Enum::name)
                 .collect(Collectors.toList());
 
+
+        if (config.getConfig().getFirst(BY_PASS) != null) {
+            try {
+                EnvSubstitutor.envSubstitutor.replace(config.getConfig().getFirst(BY_PASS));
+            } catch (IllegalArgumentException e) {
+                valid = false;
+                comment = "By pass parameter '" + config.getConfig().getFirst(BY_PASS).replaceAll("[${}]", "") + "' not exists.";
+
+            } catch (Exception e) {
+                valid = false;
+                comment = "Please check by pass parameter.";
+            }
+        }
 
         List<String> notFound = resetActions.stream().filter(a -> !"".equals(a) && !RESET_ACTIONS_LIST.contains(a)).collect(Collectors.toList());
         if (notFound.size() > 0) {
@@ -180,6 +216,7 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
         if (!valid) {
             throw new ComponentValidationException("Invalid configuration. " + comment);
         }
+
     }
 
     @Override
@@ -194,14 +231,14 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
 
     @Override
     public RestUserFederationProvider create(KeycloakSession session, ComponentModel model) {
-        final String url = model.getConfig().getFirst(PROPERTY_URL);
-        final Boolean attributesIsSync = Boolean.valueOf(model.getConfig().getFirst(ATTR_SYNC));
-        final String rolePrefix = model.getConfig().getFirst(PREFIX);
-        final Boolean roleIsSync = Boolean.valueOf(model.getConfig().getFirst(ROLE_SYNC));
-        final Boolean upperCase = Boolean.valueOf(model.getConfig().getFirst(UPPERCASE));
-        final Boolean proxyOn = Boolean.valueOf(model.getConfig().getFirst(PROXY_ENABLED));
-        final Boolean uncheckFederation = Boolean.valueOf(model.getConfig().getFirst(UNCHECK_FEDERATION));
-        final Boolean notCreateUsers = Boolean.valueOf(model.getConfig().getFirst(NOT_CREATE_USERS));
+        final String url = EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(PROPERTY_URL));
+        final Boolean attributesIsSync = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(ATTR_SYNC)));
+        final String rolePrefix = EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(PREFIX));
+        final Boolean roleIsSync = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(ROLE_SYNC)));
+        final Boolean upperCase = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(UPPERCASE)));
+        final Boolean proxyOn = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(PROXY_ENABLED)));
+        final Boolean uncheckFederation = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(UNCHECK_FEDERATION)));
+        final Boolean notCreateUsers = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(model.getConfig().getFirst(NOT_CREATE_USERS)));
         final List<String> resetActions = formatResetActions(model.getConfig().getFirst(RESET_ACTIONS));
 
         UserRepository repository = new UserRepository(url, proxyOn);
@@ -224,107 +261,145 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
 
     private List<String> formatResetActions(String resetActions) {
         final String SEP = ",";
-        String value = resetActions == null ? "" : resetActions;
-        return Arrays.asList(value.split(SEP)).stream().map(String::trim).collect(Collectors.toList());
+        List<String> result;
+
+        if (!StringUtils.isBlank(resetActions)) {
+            String value = resetActions == null ? "" : resetActions;
+            result = Arrays.asList(value.split(SEP)).stream().map(String::trim).collect(Collectors.toList());
+        } else {
+            result = new ArrayList<>();
+        }
+        return result;
     }
 
 
     protected SynchronizationResult syncImpl(Optional<Date> date, KeycloakSessionFactory sessionFactory, final String realmId, final ComponentModel fedModel) {
-        final String url = fedModel.getConfig().getFirst(PROPERTY_URL);
-        final Boolean proxyOn = Boolean.valueOf(fedModel.getConfig().getFirst(PROXY_ENABLED));
-        final Boolean uncheck = Boolean.valueOf(fedModel.getConfig().getFirst(UNCHECK_FEDERATION));
-        final Boolean notCreateUsers = Boolean.valueOf(fedModel.getConfig().getFirst(NOT_CREATE_USERS));
-        UserRepository repository = new UserRepository(url, proxyOn);
+        final String url = EnvSubstitutor.envSubstitutor.replace(fedModel.getConfig().getFirst(PROPERTY_URL));
+        final Boolean proxyOn = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(fedModel.getConfig().getFirst(PROXY_ENABLED)));
+        final Boolean uncheck = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(fedModel.getConfig().getFirst(UNCHECK_FEDERATION)));
+        final Boolean notCreateUsers = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(fedModel.getConfig().getFirst(NOT_CREATE_USERS)));
 
+        UserRepository repository = new UserRepository(url, proxyOn);
+        final SynchronizationResult syncResult = new SynchronizationResult();
         List<UserDto> users;
 
-        if (date.isPresent()) {
-            //Since
-            users = repository.getUpdatedUsers(date.get());
-        } else {
-            //Every
-            users = repository.getUsers();
+        Boolean byPass = false;
+        try {
+            byPass = Boolean.valueOf(EnvSubstitutor.envSubstitutor.replace(fedModel.getConfig().getFirst(BY_PASS)));
+        } catch (IllegalArgumentException e) {
+            log.warn("By pass parameter '" + fedModel.getConfig().getFirst(BY_PASS).replaceAll("[${}]", "") + "' not exists.");
         }
 
-        final SynchronizationResult syncResult = new SynchronizationResult();
+        if (!byPass) {
+            //Federation enabled
+            if (date.isPresent()) {
 
-        class BooleanHolder {
-            private boolean value = true;
-        }
-        final BooleanHolder exists = new BooleanHolder();
+                users = repository.getUpdatedUsers(formatDate(date.get()));
+            } else {
+                //Every
+                users = repository.getUsers();
+            }
 
+            class BooleanHolder {
+                private boolean value = true;
+            }
+            final BooleanHolder exists = new BooleanHolder();
 
-        for (final UserDto restUser : users) {
+            if(users==null){
+                log.infof("Federation starting for '%s' users", users.size());
+            }else{
+                log.errorf("Users is null");
+            }
 
-            try {
-                // Process each user in it's own transaction to avoid global fail
-                KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
-                    @Override
-                    public void run(KeycloakSession session) {
-                        RestUserFederationProvider restFedProvider = (RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
-                        RealmModel currentRealm = session.realms().getRealm(realmId);
+            for (final UserDto restUser : users) {
 
-                        String username = restUser.getUserName();
-                        exists.value = true;
-                        UserModel currentUser = session.userLocalStorage().getUserByUsername(username, currentRealm);
-
-                        if (currentUser == null) {
-
-                            if(!notCreateUsers){
-                                // Add new user to Keycloak
-                                exists.value = false;
-                                restFedProvider.importUserFromRest(session, currentRealm, restUser, uncheck);
-                                syncResult.increaseAdded();
-                            }else{
-                                log.debug("notCreateUsers mode: Skip this users " + username);
-                            }
-                        } else {
-                            //Uncheck mode ignore federation origin
-                            if ((fedModel.getId().equals(currentUser.getFederationLink()) || uncheck) && restUser.getUserName().equals(currentUser.getUsername())) {
-
-                                // Update keycloak user
-                                restFedProvider.updateUserFromRest(currentRealm, restUser, currentUser, uncheck);
-
-                                session.userCache().evict(currentRealm, currentUser);
-                                log.debugf("Updated user from REST: %s", currentUser.getUsername());
-                                syncResult.increaseUpdated();
-                            } else {
-                                log.warnf("User '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s'", username, fedModel.getName());
-                                syncResult.increaseFailed();
-                            }
-                        }
-                    }
-
-                });
-            } catch (ModelException me) {
-                log.error("Failed during import user from REST", me);
-                syncResult.increaseFailed();
-
-                // Remove user if we already added him during this transaction
-                if (!exists.value) {
+                try {
+                    // Process each user in it's own transaction to avoid global fail
                     KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
-
                         @Override
                         public void run(KeycloakSession session) {
-                            //RestUserFederationProvider restFedProvider = (RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
+                            RestUserFederationProvider restFedProvider = (RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
                             RealmModel currentRealm = session.realms().getRealm(realmId);
 
-                            if (restUser.getUserName() != null) {
-                                UserModel existing = session.userLocalStorage().getUserByUsername(restUser.getUserName(), currentRealm);
-                                if (existing != null) {
-                                    UserCache userCache = session.userCache();
-                                    if (userCache != null) {
-                                        userCache.evict(currentRealm, existing);
+                            String username = restUser.getUserName();
+                            exists.value = true;
+                            UserModel currentUser = session.userLocalStorage().getUserByUsername(username, currentRealm);
+
+                            if (currentUser == null) {
+
+                                if (!notCreateUsers) {
+
+                                    UserModel storageCurrentUser = session.userStorageManager().getUserByUsername(username, currentRealm);
+
+                                    if (storageCurrentUser != null) {
+                                        //He's in DB
+                                        UserCache userCache = session.userCache();
+                                        if (userCache != null) {
+                                            userCache.evict(currentRealm, storageCurrentUser);
+                                        }
+                                        log.debugf("User %s exists. Evict him", currentUser.getUsername());
+
+                                    } else {
+
+                                        // Add new user to Keycloak
+                                        exists.value = false;
+                                        restFedProvider.importUserFromRest(session, currentRealm, restUser, uncheck);
+                                        syncResult.increaseAdded();
                                     }
-                                    session.userLocalStorage().removeUser(currentRealm, existing);
+
+                                } else {
+                                    log.debugf("notCreateUsers mode: Skip this users " + username);
+                                }
+                            } else {
+                                //Uncheck mode ignore federation origin
+                                if ((fedModel.getId().equals(currentUser.getFederationLink()) || uncheck) && restUser.getUserName().equals(currentUser.getUsername())) {
+
+                                    // Update keycloak user
+                                    restFedProvider.updateUserFromRest(currentRealm, restUser, currentUser, uncheck);
+
+                                    session.userCache().evict(currentRealm, currentUser);
+                                    log.debugf("Updated user from REST: %s", currentUser.getUsername());
+                                    syncResult.increaseUpdated();
+                                } else {
+                                    log.warnf("User '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s'", username, fedModel.getName());
+                                    syncResult.increaseFailed();
                                 }
                             }
                         }
+
                     });
+                } catch (ModelException me) {
+                    log.warn("Failed during import user from REST", me);
+                    syncResult.increaseFailed();
+
+                    // Remove user if we already added him during this transaction
+                    if (!exists.value) {
+                        KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
+
+                            @Override
+                            public void run(KeycloakSession session) {
+                                //RestUserFederationProvider restFedProvider = (RestUserFederationProvider) session.getProvider(UserStorageProvider.class, fedModel);
+                                RealmModel currentRealm = session.realms().getRealm(realmId);
+
+                                if (restUser.getUserName() != null) {
+                                    UserModel existing = session.userLocalStorage().getUserByUsername(restUser.getUserName(), currentRealm);
+                                    if (existing != null) {
+                                        UserCache userCache = session.userCache();
+                                        if (userCache != null) {
+                                            userCache.evict(currentRealm, existing);
+                                        }
+                                        session.userLocalStorage().removeUser(currentRealm, existing);
+                                    }
+                                }
+                            }
+                        });
+                    }
                 }
             }
+        } else {
+            //Federation by passed
+            log.infof("By Pass Federation '%s'", PROVIDER_NAME);
         }
-
         return syncResult;
     }
 }

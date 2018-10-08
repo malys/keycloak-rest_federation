@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface UserMapper {
 
-    public List<UserDto> getUsers();
+    List<UserDto> getUsers();
 
-    public List<UserDto> getUpdatedUsers(Date date);
+    List<UserDto> getUpdatedUsers(String date);
 }
