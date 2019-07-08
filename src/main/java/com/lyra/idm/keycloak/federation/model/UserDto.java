@@ -1,5 +1,6 @@
 package com.lyra.idm.keycloak.federation.model;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
 
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Data
+@AllArgsConstructor
 public class UserDto {
     private String firstName;
     private String lastName;
@@ -15,4 +17,5 @@ public class UserDto {
     private boolean enabled = false;
     private Set<String> roles;
     private Map<String, List<String>> attributes;
+    private String password;
 }

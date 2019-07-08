@@ -9,8 +9,7 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
-import java.util.Date;
-import java.util.List;
+import java.util.Set;
 
 /**
  * Stub Service class to be used with RestEasy to access user rest api
@@ -20,14 +19,21 @@ import java.util.List;
 public interface UserService {
     String FORMAT = "yyyy-MM-dd'T'HH:mm'Z'";
 
+    /**
+     * Full users
+     *
+     * @return Users
+     */
     @GET
     @Path("/full")
-    List<UserDto> getUsers();
+    Set<UserDto> getUsers();
 
     /**
+     * Update users
+     *
      * @param date see FORMAT in UTC
      */
     @GET
     @Path("/updated/{from}")
-    List<UserDto> getUpdatedUsers( @PathParam("from")  String date);
+    Set<UserDto> getUpdatedUsers(@PathParam("from") String date);
 }

@@ -77,7 +77,7 @@ Change RH-SSO version in *pom.xml* and maven will update inherited dependencies.
 
 ### Configuration
 
-![](./federation.png)
+![](./federation1.png)
 
 | Name                                      | Description                                               |
 |---                                        |---                                                        |   
@@ -87,32 +87,67 @@ Change RH-SSO version in *pom.xml* and maven will update inherited dependencies.
 | Uppercase role/attribute name             |Force upper case for synchronized attributes or roles      |
 | Enable roles synchronization              |Import roles during synchronization                        |
 | Enable attributes synchronization         |Import attributes during synchronization                   |
+
+
+![](./federation2.png)
+
+| Name                                      | Description                                               |
+|---                                        |---                                                        |   
+| Enable attributes synchronization         |Import attributes during synchronization                   |
+| Enable password synchronization           |Import hashed password during synchronization              |
+| Algorithm for hashing password            |Hashing algorithm                                          |
+| Number of iteration for hashing password  |Hashing iteration (SHA256, PBKDF2-SHA256, PBKDF2-SHA256)   | 
 | Uncheck federation origin                 |Not verify federation user source to synchronize elements  |
 | Not create new users                      |Update only existed users                                  |
-| Actions to apply after user creation      |Send link corresponding to reset action by email           |
-| Use Proxy                                 |Enable proxy use                                           |
+| Actions to apply after user creation(1)   |Send link corresponding to reset action by email           |
+| Use Proxy                                 |Enable proxy use                                           |    
+| Client name to affect roles               |Define role scope                                          |    
+| Public URL for IDM                        |Send email with public reset link                          |    
+                                        
+(1) Action names list (ex: VERIFY_EMAIL) or custom template name (ex: welcome.ftl). **One mail by action will been sent.**
+Java properties named "RHSSOxxx" or "KEYCLOAKxxx=" are provided to custom freemarker template context. (See [Email template provider](https://git.lbg.office.fr.lyra/idm/rh-sso-email-template-provider))
+Custom email subject and requireaction name are set by "template name.Subject" and "requiredAction.template name" (ex: welcome.ftl.Subject, requiredAction.welcome.ftl).
 
 ## Best practices
 
 * Implements [UserService](./src/main/java/com/lyra/idm/keycloak/federation/api/user/UserService.java)
+* Produce JSON User Object like [UserDto](./src/main/java/com/lyra/idm/keycloak/federation/model/UserDto.java)
+* For differential synchronization, sub 5mn to timestamp. 
 * Don't remove users, disable them (synchronization contraints).
 * Use prefix for roles and attributes
 * Enable *Periodic Changed Users Sync*
 * Use *Uncheck federation origin* caustiously
-* Custom email template *executeActions.ftl*
+* Custom email template *executeActions.ftl* or create specific email template and declare it in action field
+* See *docker/servers/json-server/db.json* example of JSON object to transfer
 
 ## Release Notes
 
-### 1.1.0
+### 0.0.9
 
+* Add password synchronization
+
+### 0.0.6
+
+* Add public url in paramater
+
+### 0.0.5
+
+* define scope for roles (by default realm, or "Client name to affect roles" for client scope)
+
+### 0.0.3
+
+* Possibility to affect roles to specific client (see @"Client name to affect roles")
+* Use custom email-template-provider (see @"Actions to apply after user creation")
 * Fire reset actions after user creation
 * Uncheck mode to update user from different federation
 * Force prefix
 * Prefix use for roles and attributes
 * Format roles and attributes
 * Add "not create new users" mode
+* Add By-pass to disable federation on a slave
+* Change interface to implement
 
-### 1.0.0
+### 0.0.2
 
 * users and  updated users synchronization
 * Proxy management

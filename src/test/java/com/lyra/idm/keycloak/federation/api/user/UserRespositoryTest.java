@@ -18,23 +18,18 @@ package com.lyra.idm.keycloak.federation.api.user;
 import com.lyra.idm.keycloak.federation.model.UserDto;
 import com.lyra.idm.keycloak.federation.provider.RestUserFederationProviderFactory;
 import com.xebialabs.restito.server.StubServer;
-import org.glassfish.grizzly.http.Method;
+import org.apache.log4j.BasicConfigurator;
 import org.glassfish.grizzly.http.util.HttpStatus;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static com.xebialabs.restito.builder.stub.StubHttp.whenHttp;
-import static com.xebialabs.restito.builder.verify.VerifyHttp.verifyHttp;
 import static com.xebialabs.restito.semantics.Action.*;
 import static com.xebialabs.restito.semantics.Condition.*;
 import static java.lang.String.format;
 
+//TODO not executed with maven
 /**
  * Remote user federation provider factory tests.
  */
@@ -42,20 +37,31 @@ public class UserRespositoryTest {
 
     private static final String USER_NAME1 = "user1@test.com";
     private static final String USER_NAME2 = "user2@test.com";
-    private static final String CONTEXT_USERS = "/users/";
-    private static final String CONTEXT_UPDATED_USERS = "/users/updated/";
+    private static final String CONTEXT_USERS = "/full";
+    private static final String CONTEXT_UPDATED_USERS = "/updated";
 
 
-    private StubServer server;
+    private static StubServer server;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeClass
+    public static void setUp() {
+        BasicConfigurator.configure();
         server = new StubServer().run();
+        whenHttp(server).
+                match(get("/"))
+                .then(contentType("text/html"), stringContent(":)"));
+        whenHttp(server).
+                match(startsWithUri(CONTEXT_USERS)).
+                then(status(HttpStatus.OK_200), contentType("application/json"), resourceContent("com.lyra.idm.keycloak.federation.api/users.json"));
+        whenHttp(server).
+                match(startsWithUri(CONTEXT_UPDATED_USERS)).
+                then(status(HttpStatus.OK_200), contentType("application/json"), resourceContent("com.lyra.idm.keycloak.federation.api/users.json"));
+
         System.out.println("Server listen on : " + server.getPort());
     }
 
-    @After
-    public void stop() {
+    @AfterClass
+    public static void stop() {
         server.stop();
     }
 
@@ -77,40 +83,40 @@ public class UserRespositoryTest {
 
     @Test
     public void testGetUsers() {
-        whenHttp(server).
-                match(get(CONTEXT_USERS)).
-                then(status(HttpStatus.OK_200), contentType("application/json"), resourceContent("com.lyra.idm.keycloak.federation.api/users.json"));
-
         UserRepository userRepository = new UserRepository(getRestUrl(""), false);
-        List<UserDto> users = userRepository.getUsers();
+        Set<UserDto> users = userRepository.getUsers();
 
-        verifyHttp(server).once(
-                method(Method.GET),
-                uri(CONTEXT_USERS)
-        );
+        Optional<UserDto> u1 = users.stream()
+                .filter(x -> x.getEmail().equals(USER_NAME1))
+                .findFirst();
+        Optional<UserDto> u2 = users.stream()
+                .filter(x -> x.getEmail().equals(USER_NAME2))
+                .findFirst();
 
-        check(users.get(0), USER_NAME1);
-        check(users.get(1), USER_NAME2);
+        if (u1.isPresent()) check(u1.get(), USER_NAME1);
+        else Assert.assertTrue(false);
 
-
+        if (u2.isPresent()) check(u2.get(), USER_NAME2);
+        else Assert.assertTrue(false);
     }
 
     @Test
     public void testGetUpdatedUsers() {
-        whenHttp(server).
-                match(get(CONTEXT_UPDATED_USERS)).
-                then(status(HttpStatus.OK_200), contentType("application/json"), resourceContent("com.lyra.idm.keycloak.federation.api/users.json"));
-
         UserRepository userRepository = new UserRepository(getRestUrl(""), false);
-        List<UserDto> users = userRepository.getUpdatedUsers(RestUserFederationProviderFactory.formatDate(new Date()));
+        Set<UserDto> users = userRepository.getUpdatedUsers(RestUserFederationProviderFactory.formatDate(new Date()));
 
-        verifyHttp(server).once(
-                method(Method.GET),
-                uri(CONTEXT_UPDATED_USERS)
-        );
+        Optional<UserDto> u1 = users.stream()
+                .filter(x -> x.getEmail().equals(USER_NAME1))
+                .findFirst();
+        Optional<UserDto> u2 = users.stream()
+                .filter(x -> x.getEmail().equals(USER_NAME2))
+                .findFirst();
 
-        check(users.get(0), USER_NAME1);
-        check(users.get(1), USER_NAME2);
+        if (u1.isPresent()) check(u1.get(), USER_NAME1);
+        else Assert.assertTrue(false);
+
+        if (u2.isPresent()) check(u2.get(), USER_NAME2);
+        else Assert.assertTrue(false);
     }
 
 
