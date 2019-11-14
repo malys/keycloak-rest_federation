@@ -2,12 +2,24 @@ package com.lyra.idm.keycloak.federation.api.user;
 
 import com.lyra.idm.keycloak.federation.model.UserDto;
 
-import java.util.Date;
-import java.util.List;
+import java.util.Set;
 
+/**
+ * Methods for users synchronization
+ */
 public interface UserMapper {
 
-    public List<UserDto> getUsers();
+    /**
+     * Full users
+     *
+     * @return Users
+     */
+    Set<UserDto> getUsers();
 
-    public List<UserDto> getUpdatedUsers(Date date);
+    /**
+     * Updated users
+     *
+     * @return Users
+     */
+    Set<UserDto> getUpdatedUsers(String date);
 }

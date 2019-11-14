@@ -1,0 +1,58 @@
+[
+  {
+    "email": "user4@test.com",
+    "userName": "user4",
+    "firstName": "user",
+    "lastName": "one",
+    "enabled": true,
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "attributes": {
+      "locale": [
+        "en-GB"
+      ],
+      "country": [
+        "USA"
+      ],
+      "clientId": [
+        "134"
+      ],
+      "phoneNumber": [
+        "01342299299"
+      ],
+      "mobileNumber": [
+        "01342299299"
+      ]
+    }
+  },
+  {
+    "email": "user5@test.com",
+    "userName": "user5",
+    "firstName": "user",
+    "lastName": "two",
+    "enabled": true,
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "attributes": {
+      "locale": [
+        "en-GB"
+      ],
+      "country": [
+        "Great-Britain"
+      ],
+      "clientId": [
+        "134"
+      ],
+      "phoneNumber": [
+        "01342299299"
+      ],
+      "mobileNumber": [
+        "01342299299"
+      ]
+    }
+  }
+]
