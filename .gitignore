@@ -4,3 +4,8 @@
 *.iml
 node_modules/
 log/
+
+/docker/servers/servers/data/
+/docker/servers/email/
+
+/deploy.cmd

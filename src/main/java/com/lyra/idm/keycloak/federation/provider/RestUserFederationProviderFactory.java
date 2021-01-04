@@ -65,7 +65,7 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
     public static final String PASSWORD_SYNC = "password_sync";
     public static final String PASSWORD_HASH_ALGORITHM = "password_hash_algorithm";
     public static final String PASSWORD_HASH_ITERATION = "password_hash_iteration";
-    public static final String[] SUPPORTED_HASH_ALGORITHM = {"SHA256", "PBKDF2-SHA256", "PBKDF2-SHA256"};
+    protected static final String[] SUPPORTED_HASH_ALGORITHM = {"SHA256", "PBKDF2-SHA256"};
 
     public static final String ROLE_CLIENT_SYNC = "role_client_sync";
     public static final String PREFIX = "prefix";
@@ -149,7 +149,7 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
                 .type(ProviderConfigProperty.STRING_TYPE)
                 .defaultValue("SHA256")
                 .label("Algorithm for hashing password")
-                .helpText("SHA256, PBKDF2-SHA256, PBKDF2-SHA256")
+                .helpText("SHA256, PBKDF2-SHA256")
 
                 .add()
                 .property().name(PASSWORD_HASH_ITERATION)
@@ -349,14 +349,12 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
         final String publicUrl = EnvSubstitutor.envStrSubstitutor.replace(model.getConfig().getFirst(PUBLIC_URL));
 
         final Boolean passwordIsSync = Boolean.valueOf(EnvSubstitutor.envStrSubstitutor.replace(model.getConfig().getFirst(PASSWORD_SYNC)));
-        String passwordAlgorithm = EnvSubstitutor.envStrSubstitutor.replace(model.getConfig().getFirst(PASSWORD_HASH_ALGORITHM));
+        String passwordAlgorithm = "";
         Integer passwordIteration = 0;
         String passwordIterationStr = EnvSubstitutor.envStrSubstitutor.replace(model.getConfig().getFirst(PASSWORD_HASH_ITERATION));
         if (passwordIsSync == true && passwordAlgorithm != null && passwordIterationStr != null) {
             passwordAlgorithm = EnvSubstitutor.envStrSubstitutor.replace(model.getConfig().getFirst(PASSWORD_HASH_ALGORITHM)).toLowerCase();
             passwordIteration = Integer.parseInt(passwordIterationStr);
-        } else {
-            passwordAlgorithm = "";
         }
 
 
@@ -382,7 +380,7 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
         return syncImpl(Optional.of(date), sessionFactory, realmId, model);
     }
 
-    private Set<UserDto> protector(Set<UserDto> list) {
+    private Set<UserDto> protector(Set<UserDto> list, final SynchronizationResult syncResult) {
         Set<UserDto> result = list.stream()
                 .filter(Objects::nonNull)
                 .filter(distinctByKey(u -> u.getEmail()))
@@ -394,7 +392,10 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
                 .distinct()
                 .filter(not(result::contains))
                 .collect(Collectors.toList())
-                .forEach(u -> log.warn("Ignored user: name->'" + u.getUserName() + " email->" + u.getEmail()));
+                .forEach(u -> {
+                    log.warn("Ignored user: name->" + u.getUserName() + " email->" + u.getEmail());
+                    syncResult.increaseFailed();
+                });
 
         return result;
 
@@ -432,8 +433,8 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
             final BooleanHolder exists = new BooleanHolder();
 
             if (users != null) {
-                log.infof("Federation starting for '%s' users", users.size());
-                Set<UserDto> usersClean = protector(users);
+                log.infof("[%s] Federation starting for '%s' users", fedModel.getName(), users.size());
+                Set<UserDto> usersClean = protector(users, syncResult);
                 for (final UserDto restUser : usersClean) {
                     if (restUser.getUserName() != null && restUser.getEmail() != null) {
                         try {
@@ -537,6 +538,9 @@ public class RestUserFederationProviderFactory implements UserStorageProviderFac
             //throw new RuntimeException("By pass Federation");
             return SynchronizationResult.empty();
         }
+
+        log.infof("[%s] Federation ended: '%s'", fedModel.getName(), syncResult.toString());
+
         return syncResult;
     }
 

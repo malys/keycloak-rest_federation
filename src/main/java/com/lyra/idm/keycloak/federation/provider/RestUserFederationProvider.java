@@ -156,7 +156,7 @@ public class RestUserFederationProvider implements UserStorageProvider {
 
         UserModel local = session.userLocalStorage().addUser(realm, restUsername);
         log.debugf("Imported new user from Rest to Keycloak DB. Username: [%s], Email: [%s] for Realm: [%s] ",
-                local.getUsername(), local.getEmail(), realm.getName());
+                local.getUsername(), restUser.getEmail(), realm.getName());
         UserModel result = proxy(realm, local, restUser, true, uncheck);
         if (resetActions != null && !resetActions.isEmpty()) {
             resetActionExecute(realm, result);

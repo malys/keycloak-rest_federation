@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.lyra.idm.keycloak</groupId>
         <artifactId>parent</artifactId>
-        <version>7.2.0.GA.1</version>
+        <version>7.2.0.GA.3</version>
     </parent>
 
     <groupId>com.lyra.idm.keycloak</groupId>
@@ -19,16 +19,6 @@
         <dependency>
             <groupId>com.lyra.idm.keycloak</groupId>
             <artifactId>email-template-provider</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.keycloak</groupId>
-            <artifactId>keycloak-common</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.keycloak</groupId>
-            <artifactId>keycloak-services</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
