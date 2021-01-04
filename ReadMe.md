@@ -1,5 +1,4 @@
-[![Version][version-shield]][version-url]
-
+![Version][version-shield]
 # RH-SSO federation
 
 RH-SSO federation to synchronize users from **business REST API** to RH-SSO. 
