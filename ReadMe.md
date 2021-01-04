@@ -233,6 +233,9 @@ We use [SemVer](http://semver.org/) for versioning.
 
 * Initial commit
 
+## TODO
+
+* Support OIDC (client credentials) on REST federation endpoint.
 
 ## Acknowledgments
 
